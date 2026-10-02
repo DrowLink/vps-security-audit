@@ -282,10 +282,10 @@ if command -v apt >/dev/null 2>&1; then
   apt_status=$?
   update_count="$(count_apt_upgrades "$apt_output")"
   report_write 'APT status: %s; upgradable packages in local metadata: %s\n' "$apt_status" "$update_count"
-  case "$(classify_package_status apt "$apt_status" "$update_count")" in
+  case "$(classify_apt_result "$apt_status" "$apt_output")" in
     PASS) finding PASS "No upgrades are listed in current APT metadata." ;;
     WARN) finding WARN "$update_count package upgrade(s) are listed; review and patch promptly." ;;
-    ERROR) finding WARN "APT update status could not be determined; the command exited with status $apt_status." ;;
+    ERROR) finding WARN "APT update status could not be determined; output validation failed (status $apt_status)." ;;
   esac
 elif command -v dnf >/dev/null 2>&1; then
   dnf_output="$(dnf -q --cacheonly check-update 2>&1)"

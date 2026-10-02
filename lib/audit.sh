@@ -60,6 +60,25 @@ count_apt_upgrades() {
   awk '/\[upgradable from:/ {count++} END {print count+0}' <<< "$1"
 }
 
+classify_apt_result() {
+  local status="$1" output="$2" count
+  if (( status != 0 )) || ! awk '
+    BEGIN {valid=1}
+    /^$/ {next}
+    $0 == "WARNING: apt does not have a stable CLI interface. Use with caution in scripts." {next}
+    $0 == "Listing..." {if (listing) valid=0; listing=1; next}
+    listing && NF == 6 && $1 ~ /^[^[:space:]\/]+\/[^[:space:]]+$/ &&
+      $4 == "[upgradable" && $5 == "from:" && $6 ~ /]$/ {next}
+    {valid=0}
+    END {exit(listing && valid != 0 ? 0 : 1)}
+  ' <<< "$output"; then
+    printf 'ERROR\n'
+    return
+  fi
+  count="$(count_apt_upgrades "$output")"
+  classify_package_status apt "$status" "$count"
+}
+
 classify_nft_ruleset() {
   if awk '
     /^[[:space:]]*#/ {next}
