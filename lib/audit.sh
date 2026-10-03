@@ -33,6 +33,62 @@ extract_listening_ports() {
   }' <<< "$input" | sort -nu
 }
 
+validate_listening_output() {
+  local format="$1" input="$2"
+  case "$format" in
+    ss)
+      awk '
+        BEGIN {valid=1; header=0}
+        /^$/ {next}
+        /^Netid[[:space:]]+State[[:space:]]+Recv-Q[[:space:]]+Send-Q[[:space:]]+Local Address:Port[[:space:]]+Peer Address:Port([[:space:]]*Process)?[[:space:]]*$/ {
+          if (header) valid=0
+          header=1
+          next
+        }
+        !header {valid=0; next}
+        {
+          address=$5
+          sub(/^.*:/, "", address)
+          if (NF < 6 || $1 !~ /^(tcp|udp)$/ || address !~ /^[0-9]+$/) {
+            valid=0
+          } else if ($1 == "tcp" && $2 != "LISTEN") {
+            valid=0
+          } else if ($1 == "udp" && $2 != "UNCONN") {
+            valid=0
+          }
+        }
+        END {exit(header && valid ? 0 : 1)}
+      ' <<< "$input" && printf 'VALID\n' || printf 'INVALID\n'
+      ;;
+    netstat)
+      awk '
+        BEGIN {valid=1; header=0}
+        /^$/ {next}
+        /^Active Internet connections \(only servers\)$/ && !header {next}
+        /^Proto[[:space:]]+Recv-Q[[:space:]]+Send-Q[[:space:]]+Local Address[[:space:]]+Foreign Address[[:space:]]+State([[:space:]]+PID\/Program name)?[[:space:]]*$/ {
+          if (header) valid=0
+          header=1
+          next
+        }
+        !header {valid=0; next}
+        {
+          address=$4
+          sub(/^.*:/, "", address)
+          if (NF < 5 || $1 !~ /^(tcp|tcp6|udp|udp6)$/ || address !~ /^[0-9]+$/) {
+            valid=0
+          } else if ($1 ~ /^tcp/ && (NF < 6 || $6 != "LISTEN")) {
+            valid=0
+          } else if ($1 ~ /^udp/ && NF > 6) {
+            valid=0
+          }
+        }
+        END {exit(header && valid ? 0 : 1)}
+      ' <<< "$input" && printf 'VALID\n' || printf 'INVALID\n'
+      ;;
+    *) printf 'INVALID\n' ;;
+  esac
+}
+
 classify_ufw_status() {
   local status="${1,,}"
   if [[ "$status" == *"status: active"* ]]; then

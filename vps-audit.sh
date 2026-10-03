@@ -174,7 +174,8 @@ elif command -v netstat >/dev/null 2>&1; then
   ports_status=$?
   (( ports_status == 0 )) && ports_format="netstat"
 fi
-if [[ "$(probe_succeeded "$ports_status" "$ports_output")" == "YES" ]]; then
+if [[ "$(probe_succeeded "$ports_status" "$ports_output")" == "YES" ]] &&
+  [[ "$(validate_listening_output "$ports_format" "$ports_output")" == "VALID" ]]; then
   report_write '%s\n' "$(head -n 60 <<< "$ports_output")"
   mapfile -t ports < <(extract_listening_ports "$ports_format" "$ports_output")
   high_ports=()
