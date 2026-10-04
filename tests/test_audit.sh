@@ -57,6 +57,12 @@ assert_eq "PASS" "$(classify_fail2ban_status $'Status\n`- Jail list: sshd')" "Fa
 assert_eq "WARN" "$(classify_fail2ban_status $'Status\n`- Jail list:')" "Fail2ban with zero jails warns"
 assert_eq "WARN" "$(classify_fail2ban_status $'Status\n`- Jail list: nginx-http-auth')" "Fail2ban without sshd jail warns"
 assert_eq "ERROR" "$(classify_fail2ban_status '')" "unreadable Fail2ban status errors"
+assert_eq "ERROR" "$(classify_fail2ban_status 'Error: Jail list: sshd')" "malformed Fail2ban output cannot simulate an sshd jail"
+assert_eq "ERROR" "$(classify_fail2ban_status $'Status\n`- Jail list: sshd unexpected-error')" "malformed Fail2ban jail separators cannot produce a pass"
+awk() { printf '`- Jail list: sshd\n'; return 1; }
+failed_awk_result="$(classify_fail2ban_status $'Status\n`- Jail list: sshd')"
+unset -f awk
+assert_eq "ERROR" "$failed_awk_result" "failed Fail2ban parser output cannot produce a pass"
 assert_eq "YES" "$(probe_succeeded 0 'partial output')" "successful probe output may be parsed"
 assert_eq "NO" "$(probe_succeeded 1 'Status: active')" "failed probe output is never trusted"
 assert_eq "INERT" "$(classify_nft_ruleset $'table inet filter {\n # comment: hook input\n chain x { comment "hook input"; }\n}')" "nftables comments cannot simulate a base chain"

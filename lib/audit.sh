@@ -148,10 +148,25 @@ classify_nft_ruleset() {
 }
 
 classify_fail2ban_status() {
-  local status="$1" jail_list
+  local status="$1" jail_line jail_list
   [[ -n "$status" ]] || { printf 'ERROR\n'; return; }
-  jail_list="$(awk -F'Jail list:' '/Jail list:/ {print $2; exit}' <<< "$status")"
-  [[ "$status" == *"Jail list:"* ]] || { printf 'ERROR\n'; return; }
+  if ! jail_line="$(awk '/^[[:space:]]*(`-|\|-)[[:space:]]+Jail list:[[:space:]]*/ {print}' <<< "$status")"; then
+    printf 'ERROR\n'
+    return
+  fi
+  if [[ -z "$jail_line" || "$jail_line" == *$'\n'* ]]; then
+    printf 'ERROR\n'
+    return
+  fi
+  jail_list="${jail_line#*Jail list:}"
+  if [[ "$jail_list" =~ ^[[:space:]]*$ ]]; then
+    printf 'WARN\n'
+    return
+  fi
+  if [[ ! "$jail_list" =~ ^[[:space:]]*[[:alnum:]_.-]+([[:space:]]*,[[:space:]]*[[:alnum:]_.-]+)*[[:space:]]*$ ]]; then
+    printf 'ERROR\n'
+    return
+  fi
   if [[ "$jail_list" =~ (^|[,	[:space:]])sshd([,	[:space:]]|$) ]]; then
     printf 'PASS\n'
   else
