@@ -90,10 +90,11 @@ validate_listening_output() {
 }
 
 classify_ufw_status() {
-  local status="${1,,}"
-  if [[ "$status" == *"status: active"* ]]; then
+  local status="${1,,}" first_line
+  first_line="${status%%$'\n'*}"
+  if [[ "$first_line" == "status: active" ]]; then
     printf 'PASS\n'
-  elif [[ "$status" == *"status: inactive"* ]]; then
+  elif [[ "$first_line" == "status: inactive" ]]; then
     printf 'FAIL\n'
   else
     printf 'WARN\n'

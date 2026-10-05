@@ -38,6 +38,7 @@ assert_eq "INVALID" "$(validate_listening_output netstat $'Proto Recv-Q Send-Q L
 assert_eq "INVALID" "$(validate_listening_output ss $'Netid State Recv-Q Send-Q Local Address:Port Peer Address:Port\ntcp UNCONN 0 0 0.0.0.0:22 0.0.0.0:*')" "ss rejects a TCP row with a UDP state"
 assert_eq "PASS" "$(classify_ufw_status 'Status: active')" "active UFW passes"
 assert_eq "FAIL" "$(classify_ufw_status 'Status: inactive')" "inactive UFW fails"
+assert_eq "WARN" "$(classify_ufw_status 'Error: cached Status: active')" "embedded UFW status text cannot simulate an active firewall"
 assert_eq "WARN" "$(classify_ufw_status '')" "unreadable UFW warns"
 assert_eq "PASS" "$(classify_package_status apt 0 0)" "successful APT check with no updates passes"
 assert_eq "WARN" "$(classify_package_status apt 0 4)" "APT pending updates warn"
