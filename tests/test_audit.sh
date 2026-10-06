@@ -48,6 +48,7 @@ assert_eq "ERROR" "$(classify_apt_result 0 $'Listing...\nunexpected successful o
 assert_eq "PASS" "$(classify_package_status rpm 0 0)" "successful DNF/YUM check with no updates passes"
 assert_eq "WARN" "$(classify_package_status rpm 100 0)" "DNF/YUM status 100 indicates updates"
 assert_eq "ERROR" "$(classify_package_status rpm 1 0)" "failed DNF/YUM check reports error"
+assert_eq "ERROR" "$(classify_rpm_result 0 'warning: partial output')" "unexpected DNF/YUM output cannot produce a pass"
 apt_fixture=$'\nWARNING: apt does not have a stable CLI interface. Use with caution in scripts.\n\nListing...\nbase-files/stable 12.4 amd64 [upgradable from: 12.3]\ncurl/stable-security 8.0 amd64 [upgradable from: 7.9]'
 assert_eq "2" "$(count_apt_upgrades "$apt_fixture")" "APT parser counts package entries only"
 assert_eq "WARN" "$(classify_apt_result 0 "$apt_fixture")" "validated APT output with upgrades warns"

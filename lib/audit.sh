@@ -113,6 +113,21 @@ classify_package_status() {
   esac
 }
 
+classify_rpm_result() {
+  local status="$1" output="$2"
+  if (( status == 0 )); then
+    if [[ "$output" =~ ^[[:space:]]*$ ]]; then
+      printf 'PASS\n'
+    else
+      printf 'ERROR\n'
+    fi
+  elif (( status == 100 )); then
+    printf 'WARN\n'
+  else
+    printf 'ERROR\n'
+  fi
+}
+
 count_apt_upgrades() {
   awk '/\[upgradable from:/ {count++} END {print count+0}' <<< "$1"
 }

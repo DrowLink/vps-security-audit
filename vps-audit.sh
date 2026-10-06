@@ -293,20 +293,20 @@ elif command -v dnf >/dev/null 2>&1; then
   dnf_status=$?
   report_write 'DNF cache-only check status: %s\n' "$dnf_status"
   report_write '%s\n' "$(head -n 30 <<< "$dnf_output")"
-  case "$(classify_package_status rpm "$dnf_status" 0)" in
+  case "$(classify_rpm_result "$dnf_status" "$dnf_output")" in
     PASS) finding PASS "DNF reports no pending updates in local metadata." ;;
     WARN) finding WARN "DNF reports pending updates; review and patch promptly." ;;
-    ERROR) finding WARN "DNF update status could not be determined; the command exited with status $dnf_status." ;;
+    ERROR) finding WARN "DNF update status could not be determined; output validation failed (status $dnf_status)." ;;
   esac
 elif command -v yum >/dev/null 2>&1; then
   yum_output="$(yum -q --cacheonly check-update 2>&1)"
   yum_status=$?
   report_write 'YUM cache-only check status: %s\n' "$yum_status"
   report_write '%s\n' "$(head -n 30 <<< "$yum_output")"
-  case "$(classify_package_status rpm "$yum_status" 0)" in
+  case "$(classify_rpm_result "$yum_status" "$yum_output")" in
     PASS) finding PASS "YUM reports no pending updates in local metadata." ;;
     WARN) finding WARN "YUM reports pending updates; review and patch promptly." ;;
-    ERROR) finding WARN "YUM update status could not be determined; the command exited with status $yum_status." ;;
+    ERROR) finding WARN "YUM update status could not be determined; output validation failed (status $yum_status)." ;;
   esac
 else
   finding WARN "No supported package manager was detected."
