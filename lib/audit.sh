@@ -164,8 +164,10 @@ classify_nft_ruleset() {
 }
 
 classify_fail2ban_status() {
-  local status="$1" jail_line jail_list
+  local status="$1" first_line jail_line jail_list
   [[ -n "$status" ]] || { printf 'ERROR\n'; return; }
+  first_line="${status%%$'\n'*}"
+  [[ "$first_line" == "Status" ]] || { printf 'ERROR\n'; return; }
   if ! jail_line="$(awk '/^[[:space:]]*(`-|\|-)[[:space:]]+Jail list:[[:space:]]*/ {print}' <<< "$status")"; then
     printf 'ERROR\n'
     return

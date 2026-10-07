@@ -60,6 +60,7 @@ assert_eq "WARN" "$(classify_fail2ban_status $'Status\n`- Jail list:')" "Fail2ba
 assert_eq "WARN" "$(classify_fail2ban_status $'Status\n`- Jail list: nginx-http-auth')" "Fail2ban without sshd jail warns"
 assert_eq "ERROR" "$(classify_fail2ban_status '')" "unreadable Fail2ban status errors"
 assert_eq "ERROR" "$(classify_fail2ban_status 'Error: Jail list: sshd')" "malformed Fail2ban output cannot simulate an sshd jail"
+assert_eq "ERROR" "$(classify_fail2ban_status '`- Jail list: sshd')" "Fail2ban jail list without a status header cannot produce a pass"
 assert_eq "ERROR" "$(classify_fail2ban_status $'Status\n`- Jail list: sshd unexpected-error')" "malformed Fail2ban jail separators cannot produce a pass"
 awk() { printf '`- Jail list: sshd\n'; return 1; }
 failed_awk_result="$(classify_fail2ban_status $'Status\n`- Jail list: sshd')"
