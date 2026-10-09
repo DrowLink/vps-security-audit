@@ -55,6 +55,7 @@ assert_eq "WARN" "$(classify_apt_result 0 "$apt_fixture")" "validated APT output
 assert_eq "0" "$(count_apt_upgrades $'WARNING: apt warning\n\nListing...')" "APT parser ignores warnings headers and blanks"
 assert_eq "ACTIVE" "$(classify_nft_ruleset $'table inet filter {\n chain input {\n  type filter hook input priority filter; policy drop;\n }\n}')" "nftables hooked base chain is active"
 assert_eq "INERT" "$(classify_nft_ruleset $'table inet filter {\n}')" "empty nftables table is inert"
+assert_eq "INERT" "$(classify_nft_ruleset 'type filter hook input priority filter; policy drop;')" "nftables hook declaration outside a chain is inert"
 assert_eq "PASS" "$(classify_fail2ban_status $'Status\n`- Jail list: sshd')" "Fail2ban sshd jail passes"
 assert_eq "WARN" "$(classify_fail2ban_status $'Status\n`- Jail list:')" "Fail2ban with zero jails warns"
 assert_eq "WARN" "$(classify_fail2ban_status $'Status\n`- Jail list: nginx-http-auth')" "Fail2ban without sshd jail warns"

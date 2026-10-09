@@ -154,7 +154,9 @@ classify_apt_result() {
 classify_nft_ruleset() {
   if awk '
     /^[[:space:]]*#/ {next}
-    /^[[:space:]]*type[[:space:]]+(filter|nat|route)[[:space:]]+hook[[:space:]]+(input|forward|output)([[:space:]]|;)/ {found=1}
+    /^[[:space:]]*chain[[:space:]]+[^[:space:]{]+[[:space:]]*\{[[:space:]]*$/ {in_chain=1; next}
+    in_chain && /^[[:space:]]*type[[:space:]]+(filter|nat|route)[[:space:]]+hook[[:space:]]+(input|forward|output)([[:space:]]|;)/ {found=1}
+    in_chain && /^[[:space:]]*\}[[:space:]]*$/ {in_chain=0}
     END {exit(found ? 0 : 1)}
   ' <<< "$1"; then
     printf 'ACTIVE\n'
