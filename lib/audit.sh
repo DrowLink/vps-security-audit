@@ -48,8 +48,12 @@ validate_listening_output() {
         !header {valid=0; next}
         {
           address=$5
+          peer=$6
+          has_address_separator=(address ~ /:/)
           sub(/^.*:/, "", address)
-          if (NF < 6 || $1 !~ /^(tcp|udp)$/ || address !~ /^[0-9]+$/) {
+          if (NF < 6 || $1 !~ /^(tcp|udp)$/ || !has_address_separator ||
+              address !~ /^[0-9]+$/ ||
+              (peer != "0.0.0.0:*" && peer != "[::]:*" && peer != "*:*")) {
             valid=0
           } else if ($1 == "tcp" && $2 != "LISTEN") {
             valid=0
