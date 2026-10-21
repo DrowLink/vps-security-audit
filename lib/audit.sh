@@ -77,8 +77,10 @@ validate_listening_output() {
         !header {valid=0; next}
         {
           address=$4
+          peer=$5
           sub(/^.*:/, "", address)
-          if (NF < 5 || $1 !~ /^(tcp|tcp6|udp|udp6)$/ || address !~ /^[0-9]+$/) {
+          if (NF < 5 || $1 !~ /^(tcp|tcp6|udp|udp6)$/ || address !~ /^[0-9]+$/ ||
+              (peer != "0.0.0.0:*" && peer != ":::*" && peer != "*:*")) {
             valid=0
           } else if ($1 ~ /^tcp/ && (NF < 6 || $6 != "LISTEN")) {
             valid=0

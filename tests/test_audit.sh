@@ -35,6 +35,7 @@ assert_eq "INVALID" "$(validate_listening_output ss $'Netid State Recv-Q Send-Q 
 assert_eq "INVALID" "$(validate_listening_output ss 'Netid State Recv-Q Send-Q Local Address:Port Peer Address:Port warning: partial output')" "ss header suffix cannot hide partial output"
 assert_eq "INVALID" "$(validate_listening_output netstat 'Proto Recv-Q Send-Q Local Address Foreign Address State warning: partial output')" "netstat header suffix cannot hide partial output"
 assert_eq "INVALID" "$(validate_listening_output netstat $'Proto Recv-Q Send-Q Local Address Foreign Address State\ntcp 0 0 0.0.0.0:22 192.0.2.1:50000 ESTABLISHED')" "netstat non-listening TCP row is invalid"
+assert_eq "INVALID" "$(validate_listening_output netstat $'Proto Recv-Q Send-Q Local Address Foreign Address State\ntcp 0 0 0.0.0.0:22 garbage:123 LISTEN')" "netstat rejects a malformed foreign address with a valid port"
 assert_eq "INVALID" "$(validate_listening_output ss $'Netid State Recv-Q Send-Q Local Address:Port Peer Address:Port\ntcp UNCONN 0 0 0.0.0.0:22 0.0.0.0:*')" "ss rejects a TCP row with a UDP state"
 assert_eq "INVALID" "$(validate_listening_output ss $'Netid State Recv-Q Send-Q Local Address:Port Peer Address:Port\ntcp LISTEN 0 128 0.0.0.0:22 TRUNCATED')" "ss rejects a row with a malformed peer endpoint"
 assert_eq "INVALID" "$(validate_listening_output ss $'Netid State Recv-Q Send-Q Local Address:Port Peer Address:Port\ntcp LISTEN 0 128 0.0.0.0:22 garbage:123')" "ss rejects a malformed peer address with a valid port"
