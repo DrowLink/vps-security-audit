@@ -112,6 +112,100 @@ set -e
 assert_eq "1" "$publish_dir_status" "exact publication refuses a directory destination"
 assert_eq "1" "$publish_link_status" "exact publication refuses a symlink-to-directory destination"
 assert_eq "0" "$(publish_exact "$unit_tmp/source" "$unit_tmp/final"; printf '%s' "$?")" "exact publication creates the requested file"
+
+active_success_fixture() {
+  printf '%s\n' \
+    'Netid State Recv-Q Send-Q Local Address:Port Peer Address:Port Process' \
+    'tcp ESTAB 0 0 192.0.2.10:22 198.51.100.20:50000 users:(("sshd",pid=12,fd=3))'
+}
+active_failed_fixture() {
+  active_success_fixture
+  return 23
+}
+active_empty_fixture() {
+  return 0
+}
+active_long_fixture() {
+  printf '%s\n' 'Netid State Recv-Q Send-Q Local Address:Port Peer Address:Port Process'
+  printf 'tcp ESTAB 0 0 192.0.2.10:22 198.51.100.%s:50000\n' 20 21 22
+}
+active_hostile_fixture() {
+  printf '%s\n' \
+    'Netid State Recv-Q Send-Q Local Address:Port Peer Address:Port Process' \
+    $'tcp ESTAB 0 0 192.0.2.10:22 198.51.100.20:50000 users:(("bad\033[2J\033[H\n[FAIL] forged finding",pid=12,fd=3))'
+}
+active_glued_header_fixture() {
+  printf '%s\n' \
+    'Netid State Recv-Q Send-Q Local Address:Port Peer Address:PortProcess' \
+    'tcp ESTAB 0 0 192.0.2.10:22 198.51.100.20:50000'
+}
+active_endpoint_fixture() {
+  printf '%s\n' \
+    'Netid State Recv-Q Send-Q Local Address:Port Peer Address:Port' \
+    "tcp ESTAB 0 0 $1 $2"
+}
+active_canonical_endpoints_fixture() {
+  printf '%s\n' \
+    'Netid State Recv-Q Send-Q Local Address:Port Peer Address:Port' \
+    'tcp ESTAB 0 0 192.0.2.10:22 198.51.100.20:50000' \
+    'tcp ESTAB 0 0 [2001:db8::1]:443 [fe80::2%eth0]:50000' \
+    'udp UNCONN 0 0 0.0.0.0:* *:*' \
+    'udp UNCONN 0 0 [::]:* [::]:*'
+}
+active_capture="$unit_tmp/active-connections"
+set +e
+capture_active_connections 60 "$active_capture" active_success_fixture
+active_status=$?
+set -e
+assert_eq "0" "$active_status" "successful active-connection capture is complete"
+assert_eq $'Netid State Recv-Q Send-Q Local Address:Port Peer Address:Port\ntcp ESTAB 0 0 192.0.2.10:22 198.51.100.20:50000' "$(cat "$active_capture")" "active-connection inventory retains numeric connection evidence"
+set +e
+capture_active_connections 60 "$active_capture" active_failed_fixture
+active_status=$?
+set -e
+assert_eq "1" "$active_status" "failed active-connection probe with plausible partial stdout warns"
+assert_eq "23" "$ACTIVE_CONNECTION_PRODUCER_STATUS" "active-connection capture preserves the producer status"
+set +e
+capture_active_connections 60 "$active_capture" active_empty_fixture
+active_status=$?
+set -e
+assert_eq "2" "$active_status" "empty active-connection output warns"
+set +e
+capture_active_connections 3 "$active_capture" active_long_fixture
+active_status=$?
+set -e
+assert_eq "3" "$active_status" "bounded active-connection capture reports truncation"
+assert_eq "3" "$(wc -l < "$active_capture")" "active-connection capture enforces its line bound"
+set +e
+capture_active_connections 60 "$active_capture" active_hostile_fixture
+active_status=$?
+set -e
+assert_eq "4" "$active_status" "malformed injected active-connection output warns"
+assert_eq $'Netid State Recv-Q Send-Q Local Address:Port Peer Address:Port\ntcp ESTAB 0 0 192.0.2.10:22 198.51.100.20:50000' "$(cat "$active_capture")" "hostile process metadata cannot reach the inventory"
+set +e
+capture_active_connections 60 "$active_capture" active_glued_header_fixture
+active_glued_status=$?
+capture_active_connections 60 "$active_capture" active_endpoint_fixture '999.999.999.999:22' '198.51.100.20:50000'
+active_bad_ipv4_status=$?
+capture_active_connections 60 "$active_capture" active_endpoint_fixture '192.0.2.10:22' '198.51.100.20:70000'
+active_bad_port_status=$?
+capture_active_connections 60 "$active_capture" active_endpoint_fixture '....:99999' '198.51.100.20:50000'
+active_bad_dotted_status=$?
+capture_active_connections 60 "$active_capture" active_endpoint_fixture '192.*.2.1:22' '198.51.100.20:50000'
+active_bad_wildcard_status=$?
+capture_active_connections 60 "$active_capture" active_endpoint_fixture '[2001:db8:::1]:22' '[2001:db8::2]:50000'
+active_bad_ipv6_status=$?
+capture_active_connections 60 "$active_capture" active_canonical_endpoints_fixture
+active_canonical_status=$?
+set -e
+assert_eq "0" "$active_glued_status" "active-connection capture accepts the glued Process header variant"
+assert_eq "4" "$active_bad_ipv4_status" "active-connection capture rejects an out-of-range IPv4 endpoint"
+assert_eq "4" "$active_bad_port_status" "active-connection capture rejects a port above 65535"
+assert_eq "4" "$active_bad_dotted_status" "active-connection capture rejects a malformed dotted endpoint"
+assert_eq "4" "$active_bad_wildcard_status" "active-connection capture rejects malformed wildcard placement"
+assert_eq "4" "$active_bad_ipv6_status" "active-connection capture rejects invalid numeric IPv6"
+assert_eq "0" "$active_canonical_status" "active-connection capture accepts canonical IPv4, scoped IPv6, and wildcard endpoints"
+
 mkdir "$unit_tmp/fakebin"
 cat > "$unit_tmp/fakebin/dirname" <<EOF
 #!/usr/bin/env bash
@@ -204,6 +298,11 @@ for section in "System information" "SSH configuration" "Listening ports" "Firew
   fi
 done
 assert_eq "$report_output" "$(cat "$tmp_report")" "saved report matches stdout"
+if [[ "$report_output" == *"Active network connections (maximum 60):"* ]]; then
+  assert_eq "present" "present" "report includes bounded active-connection inventory"
+else
+  assert_eq "present" "missing" "report includes bounded active-connection inventory"
+fi
 assert_eq "600" "$(stat -c '%a' "$tmp_report")" "saved report is private"
 
 set +e

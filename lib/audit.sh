@@ -239,6 +239,114 @@ classify_capture_status() {
   (( $1 == 0 )) && printf 'OK\n' || printf 'WARN\n'
 }
 
+capture_active_connections() {
+  local limit="$1" target="$2" filter_status
+  local -a pipeline_statuses
+  shift 2
+
+  ACTIVE_CONNECTION_PRODUCER_STATUS=127
+  (( limit > 0 )) || return 2
+  "$@" 2>/dev/null | awk -v limit="$limit" '
+    function valid_port(port) {
+      return port == "*" || (port ~ /^[0-9]+$/ && (port + 0) <= 65535)
+    }
+    function valid_ipv4(address,    octets, count, i) {
+      count=split(address, octets, ".")
+      if (count != 4) return 0
+      for (i=1; i<=4; i++) {
+        if (octets[i] !~ /^[0-9]+$/ || (octets[i] + 0) > 255 ||
+            octets[i] != sprintf("%d", octets[i] + 0)) return 0
+      }
+      return 1
+    }
+    function ipv6_units(part,    fields, count, i, units) {
+      if (part == "") return 0
+      count=split(part, fields, ":")
+      units=0
+      for (i=1; i<=count; i++) {
+        if (fields[i] ~ /\./) {
+          if (i != count || !valid_ipv4(fields[i])) return -1
+          units+=2
+        } else {
+          if (fields[i] !~ /^[[:xdigit:]]{1,4}$/) return -1
+          units++
+        }
+      }
+      return units
+    }
+    function valid_ipv6(address,    scoped, scope_count, compression, remainder, left, right, joined, units) {
+      scope_count=split(address, scoped, "%")
+      if (scope_count > 2 ||
+          (scope_count == 2 && scoped[2] !~ /^[[:alnum:]_.-]+$/)) return 0
+      address=scoped[1]
+      compression=index(address, "::")
+      if (compression) {
+        remainder=substr(address, compression + 2)
+        if (index(remainder, "::") ||
+            (compression > 1 && substr(address, compression - 1, 1) == ":") ||
+            substr(remainder, 1, 1) == ":") return 0
+        left=substr(address, 1, compression - 1)
+        right=remainder
+        joined=left
+        if (left != "" && right != "") joined=left ":" right
+        else if (right != "") joined=right
+        units=ipv6_units(joined)
+        return units >= 0 && units < 8
+      }
+      if (substr(address, 1, 1) == ":" || substr(address, length(address), 1) == ":") return 0
+      return ipv6_units(address) == 8
+    }
+    function valid_endpoint(endpoint,    separator, address, port) {
+      if (substr(endpoint, 1, 1) == "[") {
+        separator=index(endpoint, "]:")
+        if (separator < 3) return 0
+        address=substr(endpoint, 2, separator - 2)
+        port=substr(endpoint, separator + 2)
+        return valid_ipv6(address) && valid_port(port)
+      }
+      separator=index(endpoint, ":")
+      if (!separator || index(substr(endpoint, separator + 1), ":")) return 0
+      address=substr(endpoint, 1, separator - 1)
+      port=substr(endpoint, separator + 1)
+      return (address == "*" || valid_ipv4(address)) && valid_port(port)
+    }
+    BEGIN {header=0; emitted=0; malformed=0; truncated=0}
+    NR > limit {truncated=1; exit}
+    /^Netid[[:space:]]+State[[:space:]]+Recv-Q[[:space:]]+Send-Q[[:space:]]+Local Address:Port[[:space:]]+Peer Address:Port([[:space:]]*Process)?[[:space:]]*$/ {
+      if (header || NR != 1) {
+        malformed=1
+        next
+      }
+      print "Netid State Recv-Q Send-Q Local Address:Port Peer Address:Port"
+      header=1
+      emitted++
+      next
+    }
+    {
+      if (!header || NF < 6 || $1 !~ /^(tcp|udp)$/ ||
+          $2 !~ /^[A-Z][A-Z0-9-]*$/ || $3 !~ /^[0-9]+$/ ||
+          $4 !~ /^[0-9]+$/ || !valid_endpoint($5) || !valid_endpoint($6)) {
+        malformed=1
+        next
+      }
+      print $1, $2, $3, $4, $5, $6
+      emitted++
+    }
+    END {
+      if (truncated) exit 3
+      if (!header || emitted == 0) exit 2
+      if (malformed) exit 4
+    }
+  ' > "$target"
+  pipeline_statuses=("${PIPESTATUS[@]}")
+  ACTIVE_CONNECTION_PRODUCER_STATUS="${pipeline_statuses[0]}"
+  filter_status="${pipeline_statuses[1]}"
+
+  (( filter_status == 3 )) && return 3
+  (( ACTIVE_CONNECTION_PRODUCER_STATUS == 0 )) || return 1
+  return "$filter_status"
+}
+
 classify_availability() {
   (( $1 == 1 )) && printf 'OK\n' || printf 'WARN\n'
 }

@@ -6,7 +6,7 @@ A dependency-light, read-only Bash auditor for Linux VPS hosts. It collects a pr
 
 - Operating system, kernel, uptime, and privilege level
 - Default OpenSSH daemon settings (`PermitRootLogin`, `PasswordAuthentication`, public-key authentication, and authentication attempt limits); conditional `Match` contexts are identified as unresolved rather than treated as passing
-- Listening TCP/UDP ports and known high-risk legacy services
+- Listening TCP/UDP ports, known high-risk legacy services, and a bounded active-connection inventory
 - UFW, firewalld, or nftables status
 - Fail2ban availability and jail status
 - Pending package upgrades using local package metadata

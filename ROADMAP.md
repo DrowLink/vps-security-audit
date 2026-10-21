@@ -4,7 +4,7 @@ Small, testable improvements are completed in order. Each behavior change must s
 
 - [x] Reject malformed `ss` peer endpoints before classifying listening ports.
 - [x] Reject malformed `netstat` foreign endpoints before classifying listening ports.
-- [ ] Add a bounded active-connection inventory that warns when its probe is incomplete.
+- [x] Add a bounded active-connection inventory that warns when its probe is incomplete.
 - [ ] Reject malformed local endpoints in `ss` and `netstat` listener rows before classifying ports.
 - [ ] Validate successful `sshd -T` output before classifying audited settings, warning on missing or duplicate keys.
 - [ ] Warn when a bounded command capture is truncated instead of presenting it as complete.

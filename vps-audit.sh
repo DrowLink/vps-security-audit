@@ -49,8 +49,10 @@ output_stage=""
 output_stage_dir=""
 report=""
 internal_report_dir=""
+active_connections_capture=""
 cleanup() {
   [[ -n "${report:-}" ]] && rm -f -- "$report" 2>/dev/null || true
+  [[ -n "${active_connections_capture:-}" ]] && rm -f -- "$active_connections_capture" 2>/dev/null || true
   [[ -n "${internal_report_dir:-}" ]] && rmdir -- "$internal_report_dir" 2>/dev/null || true
   [[ -n "${output_stage:-}" ]] && rm -f -- "$output_stage" 2>/dev/null || true
   [[ -n "${output_stage_dir:-}" ]] && rmdir -- "$output_stage_dir" 2>/dev/null || true
@@ -196,6 +198,24 @@ if [[ "$(probe_succeeded "$ports_status" "$ports_output")" == "YES" ]] &&
   fi
 else
   finding WARN "Could not enumerate listening ports; install iproute2 (ss)."
+fi
+
+report_write 'Active network connections (maximum 60):\n'
+if command -v ss >/dev/null 2>&1; then
+  active_connections_capture="$internal_report_dir/active-connections"
+  capture_active_connections 60 "$active_connections_capture" ss -ntu
+  active_connections_status=$?
+  active_connections="$(< "$active_connections_capture")"
+  rm -f -- "$active_connections_capture"
+  active_connections_capture=""
+  report_write '%s\n' "$active_connections"
+  case "$active_connections_status" in
+    0) ;;
+    3) finding WARN "Active network connection inventory was truncated at 60 lines." ;;
+    *) finding WARN "Active network connections could not be read completely." ;;
+  esac
+else
+  finding WARN "The 'ss' command is unavailable; active network connections were not checked."
 fi
 
 section "Firewall"
