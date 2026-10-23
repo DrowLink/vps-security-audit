@@ -37,7 +37,91 @@ validate_listening_output() {
   local format="$1" input="$2"
   case "$format" in
     ss)
-      awk '
+      LC_ALL=C awk '
+        function valid_port(port) {
+          return port ~ /^(0|[1-9][0-9]*)$/ && (port + 0) <= 65535
+        }
+        function valid_scope(scope) {
+          return length(scope) >= 1 && length(scope) <= 15 &&
+                 scope != "." && scope != ".." &&
+                 index(scope, "/") == 0 && index(scope, ":") == 0 &&
+                 scope !~ /[[:space:]]/
+        }
+        function valid_ipv4(address,    octets, count, i) {
+          count=split(address, octets, ".")
+          if (count != 4) return 0
+          for (i=1; i<=4; i++) {
+            if (octets[i] !~ /^[0-9]+$/ || (octets[i] + 0) > 255 ||
+                octets[i] != sprintf("%d", octets[i] + 0)) return 0
+          }
+          return 1
+        }
+        function valid_scoped_ipv4(address,    scope_separator, scope) {
+          scope_separator=index(address, "%")
+          if (scope_separator) {
+            scope=substr(address, scope_separator + 1)
+            address=substr(address, 1, scope_separator - 1)
+            if (!valid_scope(scope)) return 0
+          }
+          return valid_ipv4(address)
+        }
+        function ipv6_units(part,    fields, count, i, units) {
+          if (part == "") return 0
+          count=split(part, fields, ":")
+          units=0
+          for (i=1; i<=count; i++) {
+            if (fields[i] ~ /\./) {
+              if (i != count || !valid_ipv4(fields[i])) return -1
+              units+=2
+            } else {
+              if (fields[i] !~ /^[[:xdigit:]]{1,4}$/) return -1
+              units++
+            }
+          }
+          return units
+        }
+        function valid_ipv6(address,    compression, remainder, left, right, joined, units) {
+          compression=index(address, "::")
+          if (compression) {
+            remainder=substr(address, compression + 2)
+            if (index(remainder, "::") ||
+                (compression > 1 && substr(address, compression - 1, 1) == ":") ||
+                substr(remainder, 1, 1) == ":") return 0
+            left=substr(address, 1, compression - 1)
+            right=remainder
+            joined=left
+            if (left != "" && right != "") joined=left ":" right
+            else if (right != "") joined=right
+            units=ipv6_units(joined)
+            return units >= 0 && units < 8
+          }
+          if (substr(address, 1, 1) == ":" || substr(address, length(address), 1) == ":") return 0
+          return ipv6_units(address) == 8
+        }
+        function valid_local_endpoint(endpoint,    bracket_end, suffix, separator, address, scope, port) {
+          if (substr(endpoint, 1, 1) == "[") {
+            bracket_end=index(endpoint, "]")
+            if (bracket_end < 3) return 0
+            address=substr(endpoint, 2, bracket_end - 2)
+            suffix=substr(endpoint, bracket_end + 1)
+            if (substr(suffix, 1, 1) == "%") {
+              separator=index(suffix, ":")
+              if (separator < 3) return 0
+              scope=substr(suffix, 2, separator - 2)
+              if (!valid_scope(scope)) return 0
+              port=substr(suffix, separator + 1)
+            } else {
+              if (substr(suffix, 1, 1) != ":") return 0
+              port=substr(suffix, 2)
+            }
+            return valid_ipv6(address) && valid_port(port)
+          }
+          separator=index(endpoint, ":")
+          if (!separator || index(substr(endpoint, separator + 1), ":")) return 0
+          address=substr(endpoint, 1, separator - 1)
+          port=substr(endpoint, separator + 1)
+          return (address == "*" || valid_scoped_ipv4(address)) && valid_port(port)
+        }
         BEGIN {valid=1; header=0}
         /^$/ {next}
         /^Netid[[:space:]]+State[[:space:]]+Recv-Q[[:space:]]+Send-Q[[:space:]]+Local Address:Port[[:space:]]+Peer Address:Port([[:space:]]*Process)?[[:space:]]*$/ {
@@ -47,11 +131,13 @@ validate_listening_output() {
         }
         !header {valid=0; next}
         {
+          endpoint=$5
           address=$5
           peer=$6
           has_address_separator=(address ~ /:/)
           sub(/^.*:/, "", address)
           if (NF < 6 || $1 !~ /^(tcp|udp)$/ || !has_address_separator ||
+              !valid_local_endpoint(endpoint) ||
               address !~ /^[0-9]+$/ ||
               (peer != "0.0.0.0:*" && peer != "[::]:*" && peer != "*:*")) {
             valid=0
@@ -65,7 +151,74 @@ validate_listening_output() {
       ' <<< "$input" && printf 'VALID\n' || printf 'INVALID\n'
       ;;
     netstat)
-      awk '
+      LC_ALL=C awk '
+        function valid_port(port) {
+          return port ~ /^(0|[1-9][0-9]*)$/ && (port + 0) <= 65535
+        }
+        function valid_scope(scope) {
+          return length(scope) >= 1 && length(scope) <= 15 &&
+                 scope != "." && scope != ".." &&
+                 index(scope, "/") == 0 && index(scope, ":") == 0 &&
+                 scope !~ /[[:space:]]/
+        }
+        function valid_ipv4(address,    octets, count, i) {
+          count=split(address, octets, ".")
+          if (count != 4) return 0
+          for (i=1; i<=4; i++) {
+            if (octets[i] !~ /^[0-9]+$/ || (octets[i] + 0) > 255 ||
+                octets[i] != sprintf("%d", octets[i] + 0)) return 0
+          }
+          return 1
+        }
+        function ipv6_units(part,    fields, count, i, units) {
+          if (part == "") return 0
+          count=split(part, fields, ":")
+          units=0
+          for (i=1; i<=count; i++) {
+            if (fields[i] ~ /\./) {
+              if (i != count || !valid_ipv4(fields[i])) return -1
+              units+=2
+            } else {
+              if (fields[i] !~ /^[[:xdigit:]]{1,4}$/) return -1
+              units++
+            }
+          }
+          return units
+        }
+        function valid_ipv6(address,    scope_separator, scope, compression, remainder, left, right, joined, units) {
+          scope_separator=index(address, "%")
+          if (scope_separator) {
+            scope=substr(address, scope_separator + 1)
+            address=substr(address, 1, scope_separator - 1)
+            if (!valid_scope(scope)) return 0
+          }
+          compression=index(address, "::")
+          if (compression) {
+            remainder=substr(address, compression + 2)
+            if (index(remainder, "::") ||
+                (compression > 1 && substr(address, compression - 1, 1) == ":") ||
+                substr(remainder, 1, 1) == ":") return 0
+            left=substr(address, 1, compression - 1)
+            right=remainder
+            joined=left
+            if (left != "" && right != "") joined=left ":" right
+            else if (right != "") joined=right
+            units=ipv6_units(joined)
+            return units >= 0 && units < 8
+          }
+          if (substr(address, 1, 1) == ":" || substr(address, length(address), 1) == ":") return 0
+          return ipv6_units(address) == 8
+        }
+        function valid_local_endpoint(endpoint, protocol,    address, port) {
+          if (endpoint !~ /:/) return 0
+          port=endpoint
+          sub(/^.*:/, "", port)
+          address=endpoint
+          sub(/:[^:]*$/, "", address)
+          if (!valid_port(port)) return 0
+          if (protocol ~ /6$/) return valid_ipv6(address)
+          return address == "*" || valid_ipv4(address)
+        }
         BEGIN {valid=1; header=0}
         /^$/ {next}
         /^Active Internet connections \(only servers\)$/ && !header {next}
@@ -76,11 +229,15 @@ validate_listening_output() {
         }
         !header {valid=0; next}
         {
+          endpoint=$4
           address=$4
           peer=$5
           sub(/^.*:/, "", address)
-          if (NF < 5 || $1 !~ /^(tcp|tcp6|udp|udp6)$/ || address !~ /^[0-9]+$/ ||
-              (peer != "0.0.0.0:*" && peer != ":::*" && peer != "*:*")) {
+          if (NF < 5 || $1 !~ /^(tcp|tcp6|udp|udp6)$/ ||
+              !valid_local_endpoint(endpoint, $1) || address !~ /^[0-9]+$/ ||
+              (peer != "*:*" &&
+               (($1 ~ /6$/ && peer != ":::*") ||
+                ($1 !~ /6$/ && peer != "0.0.0.0:*")))) {
             valid=0
           } else if ($1 ~ /^tcp/ && (NF < 6 || $6 != "LISTEN")) {
             valid=0
