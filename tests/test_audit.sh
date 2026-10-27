@@ -148,6 +148,10 @@ assert_eq "OK" "$(classify_availability 1)" "available optional audit command is
 assert_eq "WARN" "$(classify_availability 0)" "missing optional audit command warns"
 assert_eq "INFO" "$(ssh_finding_level passwordauthentication no)" "secure default SSH setting remains informational"
 assert_eq "FAIL" "$(ssh_finding_level passwordauthentication yes)" "unsafe default SSH setting fails"
+assert_eq "MISSING" "$(validate_sshd_output $'permitrootlogin no\npasswordauthentication no\npubkeyauthentication yes')" "sshd output missing an audited key warns"
+assert_eq "DUPLICATE" "$(validate_sshd_output $'permitrootlogin no\npermitrootlogin yes\npasswordauthentication no\npubkeyauthentication yes\nmaxauthtries 3')" "duplicate audited sshd keys warn instead of using the first value"
+assert_eq "MALFORMED" "$(validate_sshd_output $'permitrootlogin\npasswordauthentication no\npubkeyauthentication yes\nmaxauthtries 3')" "audited sshd keys without one value warn"
+assert_eq "VALID" "$(validate_sshd_output $'permitrootlogin no\npasswordauthentication no\npubkeyauthentication yes\nmaxauthtries 3')" "complete unique audited sshd settings are valid"
 set +e
 append_report /dev/full '%s\n' "data" 2>/dev/null
 full_status=$?

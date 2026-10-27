@@ -504,6 +504,31 @@ capture_active_connections() {
   return "$filter_status"
 }
 
+validate_sshd_output() {
+  local output="$1" key metrics count malformed
+  for key in permitrootlogin passwordauthentication pubkeyauthentication maxauthtries; do
+    metrics="$(awk -v wanted="$key" '
+      $1 == wanted {count++; if (NF != 2 || $2 == "") malformed=1}
+      END {print count+0, malformed+0}
+    ' <<< "$output")" || {
+      printf 'ERROR\n'
+      return
+    }
+    read -r count malformed <<< "$metrics"
+    if (( count == 0 )); then
+      printf 'MISSING\n'
+      return
+    elif (( count > 1 )); then
+      printf 'DUPLICATE\n'
+      return
+    elif (( malformed != 0 )); then
+      printf 'MALFORMED\n'
+      return
+    fi
+  done
+  printf 'VALID\n'
+}
+
 classify_availability() {
   (( $1 == 1 )) && printf 'OK\n' || printf 'WARN\n'
 }

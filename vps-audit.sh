@@ -140,21 +140,29 @@ if command -v sshd >/dev/null 2>&1; then
   sshd_probe_status=$?
 fi
 if [[ "$(probe_succeeded "$sshd_probe_status" "$sshd_config")" == "YES" ]]; then
-  for key in permitrootlogin passwordauthentication pubkeyauthentication maxauthtries; do
-    value="$(awk -v wanted="$key" '$1 == wanted {print $2; exit}' <<< "$sshd_config")"
-    [[ -n "$value" ]] || value="unknown"
-    report_write '%s: %s\n' "$key" "$value"
-    case "$key" in
-      permitrootlogin|passwordauthentication)
-        result="$(ssh_finding_level "$key" "$value")"
-        if [[ "$result" == "INFO" ]]; then
-          finding INFO "$key defaults to $value; conditional Match contexts were not enumerated."
-        else
-          finding "$result" "$key defaults to $value."
-        fi
-        ;;
-    esac
-  done
+  sshd_validation="$(validate_sshd_output "$sshd_config")"
+  if [[ "$sshd_validation" == "VALID" ]]; then
+    for key in permitrootlogin passwordauthentication pubkeyauthentication maxauthtries; do
+      value="$(awk -v wanted="$key" '$1 == wanted {print $2}' <<< "$sshd_config")"
+      report_write '%s: %s\n' "$key" "$value"
+      case "$key" in
+        permitrootlogin|passwordauthentication)
+          result="$(ssh_finding_level "$key" "$value")"
+          if [[ "$result" == "INFO" ]]; then
+            finding INFO "$key defaults to $value; conditional Match contexts were not enumerated."
+          else
+            finding "$result" "$key defaults to $value."
+          fi
+          ;;
+      esac
+    done
+  elif [[ "$sshd_validation" == "MISSING" ]]; then
+    finding WARN "Effective sshd output is missing an audited setting; SSH defaults were not classified."
+  elif [[ "$sshd_validation" == "DUPLICATE" ]]; then
+    finding WARN "Effective sshd output contains a duplicate audited setting; SSH defaults were not classified."
+  else
+    finding WARN "Effective sshd output could not be validated; SSH defaults were not classified."
+  fi
 else
   finding WARN "Could not read effective sshd configuration (sshd missing, inaccessible, or inactive)."
 fi
