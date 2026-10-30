@@ -396,6 +396,58 @@ classify_capture_status() {
   (( $1 == 0 )) && printf 'OK\n' || printf 'WARN\n'
 }
 
+classify_bounded_capture_status() {
+  case "$1" in
+    0) printf 'COMPLETE\n' ;;
+    1) printf 'INCOMPLETE\n' ;;
+    3) printf 'TRUNCATED\n' ;;
+    *) printf 'FATAL\n' ;;
+  esac
+}
+
+capture_bounded_lines() {
+  local limit="$1" target="$2" filter_status
+  local -a pipeline_statuses
+  shift 2
+
+  CAPTURE_PRODUCER_STATUS=127
+  [[ "$limit" =~ ^[1-9][0-9]*$ ]] || return 2
+  "$@" 2>/dev/null | {
+    captured_lines=0
+    truncated=0
+    while :; do
+      captured_line=""
+      if IFS= read -r captured_line; then
+        terminated_line=1
+      elif [[ -n "$captured_line" ]]; then
+        terminated_line=0
+      else
+        break
+      fi
+      captured_lines=$((captured_lines + 1))
+      if (( captured_lines <= limit )); then
+        if (( terminated_line == 1 )); then
+          printf '%s\n' "$captured_line" || exit 2
+        else
+          printf '%s' "$captured_line" || exit 2
+        fi
+      else
+        truncated=1
+      fi
+    done
+    (( truncated == 0 )) || exit 3
+  } > "$target"
+  pipeline_statuses=("${PIPESTATUS[@]}")
+  CAPTURE_PRODUCER_STATUS="${pipeline_statuses[0]}"
+  filter_status="${pipeline_statuses[1]}"
+
+  if (( filter_status != 0 && filter_status != 3 )); then
+    return 2
+  fi
+  (( CAPTURE_PRODUCER_STATUS == 0 )) || return 1
+  return "$filter_status"
+}
+
 capture_active_connections() {
   local limit="$1" target="$2" filter_status
   local -a pipeline_statuses
@@ -543,6 +595,31 @@ append_report() {
   local target="$1" format="$2"
   shift 2
   printf "$format" "$@" >> "$target"
+}
+
+append_capture_file() {
+  local target="$1" source="$2"
+  cat -- "$source" >> "$target"
+}
+
+consume_capture_file() {
+  local target="$1" source="$2" source_size last_byte needs_boundary=0
+
+  source_size="$(wc -c < "$source")" || return 1
+  [[ "$source_size" =~ ^[[:space:]]*[0-9]+[[:space:]]*$ ]] || return 1
+  source_size=$((source_size))
+  if (( source_size > 0 )); then
+    last_byte="$(od -An -tu1 -j "$((source_size - 1))" -N 1 -- "$source")" || return 1
+    last_byte="${last_byte//[[:space:]]/}"
+    [[ "$last_byte" =~ ^[0-9]+$ ]] || return 1
+    (( last_byte == 10 )) || needs_boundary=1
+  fi
+
+  append_capture_file "$target" "$source" || return 1
+  if (( needs_boundary == 1 )); then
+    printf '\n' >> "$target" || return 1
+  fi
+  rm -f -- "$source" || return 2
 }
 
 publish_exact() {

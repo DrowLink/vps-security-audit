@@ -50,9 +50,11 @@ output_stage_dir=""
 report=""
 internal_report_dir=""
 active_connections_capture=""
+bounded_capture=""
 cleanup() {
   [[ -n "${report:-}" ]] && rm -f -- "$report" 2>/dev/null || true
   [[ -n "${active_connections_capture:-}" ]] && rm -f -- "$active_connections_capture" 2>/dev/null || true
+  [[ -n "${bounded_capture:-}" ]] && rm -f -- "$bounded_capture" 2>/dev/null || true
   [[ -n "${internal_report_dir:-}" ]] && rmdir -- "$internal_report_dir" 2>/dev/null || true
   [[ -n "${output_stage:-}" ]] && rm -f -- "$output_stage" 2>/dev/null || true
   [[ -n "${output_stage_dir:-}" ]] && rmdir -- "$output_stage_dir" 2>/dev/null || true
@@ -104,12 +106,24 @@ finding() {
 }
 
 capture_limited() {
-  local lines="$1" captured capture_status
+  local lines="$1" capture_status
   shift
-  captured="$("$@" 2>/dev/null)"
+  bounded_capture="$internal_report_dir/bounded-capture"
+  capture_bounded_lines "$lines" "$bounded_capture" "$@"
   capture_status=$?
-  report_write '%s\n' "$(head -n "$lines" <<< "$captured")"
-  [[ "$(classify_capture_status "$capture_status")" == "OK" ]]
+  if [[ "$(classify_bounded_capture_status "$capture_status")" == "FATAL" ]]; then
+    printf 'Error: bounded command capture failed; refusing partial output.\n' >&2
+    exit 1
+  fi
+  consume_capture_file "$report" "$bounded_capture"
+  consume_status=$?
+  case "$consume_status" in
+    0) ;;
+    1) printf 'Error: bounded command evidence could not be read completely.\n' >&2; exit 1 ;;
+    *) printf 'Error: bounded command evidence could not be removed securely.\n' >&2; exit 1 ;;
+  esac
+  bounded_capture=""
+  return "$capture_status"
 }
 
 report_write 'VPS Security Audit\n'
@@ -186,7 +200,27 @@ elif command -v netstat >/dev/null 2>&1; then
 fi
 if [[ "$(probe_succeeded "$ports_status" "$ports_output")" == "YES" ]] &&
   [[ "$(validate_listening_output "$ports_format" "$ports_output")" == "VALID" ]]; then
-  report_write '%s\n' "$(head -n 60 <<< "$ports_output")"
+  bounded_capture="$internal_report_dir/listening-ports"
+  capture_bounded_lines 60 "$bounded_capture" printf '%s\n' "$ports_output"
+  bounded_status=$?
+  bounded_class="$(classify_bounded_capture_status "$bounded_status")"
+  if [[ "$bounded_class" == "FATAL" ]]; then
+    printf 'Error: listening-port evidence capture failed; refusing partial output.\n' >&2
+    exit 1
+  fi
+  consume_capture_file "$report" "$bounded_capture"
+  consume_status=$?
+  case "$consume_status" in
+    0) ;;
+    1) printf 'Error: listening-port evidence could not be read completely.\n' >&2; exit 1 ;;
+    *) printf 'Error: listening-port evidence could not be removed securely.\n' >&2; exit 1 ;;
+  esac
+  bounded_capture=""
+  case "$bounded_class" in
+    COMPLETE) ;;
+    TRUNCATED) finding WARN "Listening-port evidence was truncated at 60 lines." ;;
+    INCOMPLETE) finding WARN "Listening-port evidence could not be bounded completely." ;;
+  esac
   mapfile -t ports < <(extract_listening_ports "$ports_format" "$ports_output")
   high_ports=()
   review_ports=()
@@ -213,10 +247,14 @@ if command -v ss >/dev/null 2>&1; then
   active_connections_capture="$internal_report_dir/active-connections"
   capture_active_connections 60 "$active_connections_capture" ss -ntu
   active_connections_status=$?
-  active_connections="$(< "$active_connections_capture")"
-  rm -f -- "$active_connections_capture"
+  consume_capture_file "$report" "$active_connections_capture"
+  consume_status=$?
+  case "$consume_status" in
+    0) ;;
+    1) printf 'Error: active-connection evidence could not be read completely.\n' >&2; exit 1 ;;
+    *) printf 'Error: active-connection evidence could not be removed securely.\n' >&2; exit 1 ;;
+  esac
   active_connections_capture=""
-  report_write '%s\n' "$active_connections"
   case "$active_connections_status" in
     0) ;;
     3) finding WARN "Active network connection inventory was truncated at 60 lines." ;;
@@ -320,7 +358,27 @@ elif command -v dnf >/dev/null 2>&1; then
   dnf_output="$(dnf -q --cacheonly check-update 2>&1)"
   dnf_status=$?
   report_write 'DNF cache-only check status: %s\n' "$dnf_status"
-  report_write '%s\n' "$(head -n 30 <<< "$dnf_output")"
+  bounded_capture="$internal_report_dir/dnf-updates"
+  capture_bounded_lines 30 "$bounded_capture" printf '%s\n' "$dnf_output"
+  bounded_status=$?
+  bounded_class="$(classify_bounded_capture_status "$bounded_status")"
+  if [[ "$bounded_class" == "FATAL" ]]; then
+    printf 'Error: DNF evidence capture failed; refusing partial output.\n' >&2
+    exit 1
+  fi
+  consume_capture_file "$report" "$bounded_capture"
+  consume_status=$?
+  case "$consume_status" in
+    0) ;;
+    1) printf 'Error: DNF evidence could not be read completely.\n' >&2; exit 1 ;;
+    *) printf 'Error: DNF evidence could not be removed securely.\n' >&2; exit 1 ;;
+  esac
+  bounded_capture=""
+  case "$bounded_class" in
+    COMPLETE) ;;
+    TRUNCATED) finding WARN "DNF update evidence was truncated at 30 lines." ;;
+    INCOMPLETE) finding WARN "DNF update evidence could not be bounded completely." ;;
+  esac
   case "$(classify_rpm_result "$dnf_status" "$dnf_output")" in
     PASS) finding PASS "DNF reports no pending updates in local metadata." ;;
     WARN) finding WARN "DNF reports pending updates; review and patch promptly." ;;
@@ -330,7 +388,27 @@ elif command -v yum >/dev/null 2>&1; then
   yum_output="$(yum -q --cacheonly check-update 2>&1)"
   yum_status=$?
   report_write 'YUM cache-only check status: %s\n' "$yum_status"
-  report_write '%s\n' "$(head -n 30 <<< "$yum_output")"
+  bounded_capture="$internal_report_dir/yum-updates"
+  capture_bounded_lines 30 "$bounded_capture" printf '%s\n' "$yum_output"
+  bounded_status=$?
+  bounded_class="$(classify_bounded_capture_status "$bounded_status")"
+  if [[ "$bounded_class" == "FATAL" ]]; then
+    printf 'Error: YUM evidence capture failed; refusing partial output.\n' >&2
+    exit 1
+  fi
+  consume_capture_file "$report" "$bounded_capture"
+  consume_status=$?
+  case "$consume_status" in
+    0) ;;
+    1) printf 'Error: YUM evidence could not be read completely.\n' >&2; exit 1 ;;
+    *) printf 'Error: YUM evidence could not be removed securely.\n' >&2; exit 1 ;;
+  esac
+  bounded_capture=""
+  case "$bounded_class" in
+    COMPLETE) ;;
+    TRUNCATED) finding WARN "YUM update evidence was truncated at 30 lines." ;;
+    INCOMPLETE) finding WARN "YUM update evidence could not be bounded completely." ;;
+  esac
   case "$(classify_rpm_result "$yum_status" "$yum_output")" in
     PASS) finding PASS "YUM reports no pending updates in local metadata." ;;
     WARN) finding WARN "YUM reports pending updates; review and patch promptly." ;;
@@ -369,9 +447,13 @@ last_available=0
 command -v last >/dev/null 2>&1 && last_available=1
 if [[ "$(classify_availability "$last_available")" == "OK" ]]; then
   report_write 'Recent logins (maximum 10):\n'
-  if ! capture_limited 10 last -a; then
-    finding WARN "Recent login history could not be read completely."
-  fi
+  capture_limited 10 last -a
+  capture_status=$?
+  case "$capture_status" in
+    0) ;;
+    3) finding WARN "Recent login history was truncated at 10 lines." ;;
+    *) finding WARN "Recent login history could not be read completely." ;;
+  esac
 else
   finding WARN "The 'last' command is unavailable; recent login history was not checked."
 fi
@@ -379,9 +461,13 @@ fi
 section "Scheduled tasks"
 if command -v systemctl >/dev/null 2>&1; then
   report_write 'Loaded timers (maximum 30):\n'
-  if ! capture_limited 30 systemctl list-timers --all --no-pager; then
-    finding WARN "systemd timer inventory could not be read completely."
-  fi
+  capture_limited 30 systemctl list-timers --all --no-pager
+  capture_status=$?
+  case "$capture_status" in
+    0) ;;
+    3) finding WARN "systemd timer inventory was truncated at 30 lines." ;;
+    *) finding WARN "systemd timer inventory could not be read completely." ;;
+  esac
 else
   finding WARN "systemctl is unavailable; systemd timers were not checked."
 fi

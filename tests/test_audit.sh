@@ -144,6 +144,43 @@ assert_eq "ERROR" "$(classify_firewalld_state 1 'Error: daemon not running due t
 assert_eq "ERROR" "$(classify_firewalld_state 1 'connection failed')" "genuine firewalld probe failure errors"
 assert_eq "OK" "$(classify_capture_status 0)" "successful informational capture is complete"
 assert_eq "WARN" "$(classify_capture_status 1)" "failed informational capture warns"
+assert_eq "FATAL" "$(classify_bounded_capture_status 2)" "bounded capture filter failure is fatal"
+bounded_capture_fixture() {
+  printf '%s\n' one two three
+}
+bounded_capture_failed_fixture() {
+  printf '%s\n' plausible
+  return 23
+}
+bounded_capture_no_newline_fixture() {
+  printf '%s' final
+}
+bounded_capture="$(mktemp)"
+set +e
+capture_bounded_lines 2 "$bounded_capture" bounded_capture_fixture
+bounded_capture_status=$?
+set -e
+assert_eq "3" "$bounded_capture_status" "bounded command capture reports truncation"
+assert_eq $'one\ntwo' "$(< "$bounded_capture")" "bounded command capture enforces its line limit"
+set +e
+capture_bounded_lines 2 "$bounded_capture" bounded_capture_failed_fixture
+bounded_capture_status=$?
+set -e
+assert_eq "1" "$bounded_capture_status" "failed bounded command capture cannot appear complete"
+assert_eq "23" "$CAPTURE_PRODUCER_STATUS" "bounded command capture preserves producer failure status"
+set +e
+capture_bounded_lines 2 /dev/full bounded_capture_fixture 2>/dev/null
+bounded_capture_status=$?
+set -e
+assert_eq "2" "$bounded_capture_status" "bounded command capture reports target write failure as fatal"
+set +e
+capture_bounded_lines 2 "$bounded_capture" bounded_capture_no_newline_fixture
+bounded_capture_status=$?
+set -e
+printf '%s' final > "$bounded_capture.expected"
+assert_eq "0" "$bounded_capture_status" "unterminated bounded command capture succeeds"
+assert_eq "0" "$(cmp -s "$bounded_capture.expected" "$bounded_capture"; printf '%s' "$?")" "bounded command capture preserves an unterminated final line"
+rm -f -- "$bounded_capture" "$bounded_capture.expected"
 assert_eq "OK" "$(classify_availability 1)" "available optional audit command is complete"
 assert_eq "WARN" "$(classify_availability 0)" "missing optional audit command warns"
 assert_eq "INFO" "$(ssh_finding_level passwordauthentication no)" "secure default SSH setting remains informational"
@@ -158,6 +195,39 @@ full_status=$?
 set -e
 assert_eq "1" "$full_status" "report append detects write failure"
 unit_tmp="$(mktemp -d)"
+printf 'prefix\n' > "$unit_tmp/report-target"
+printf 'one\n\n' > "$unit_tmp/capture-source"
+printf 'prefix\none\n\n' > "$unit_tmp/report-expected"
+set +e
+append_capture_file "$unit_tmp/report-target" "$unit_tmp/capture-source"
+append_capture_status=$?
+set -e
+assert_eq "0" "$append_capture_status" "bounded capture append succeeds"
+assert_eq "0" "$(cmp -s "$unit_tmp/report-expected" "$unit_tmp/report-target"; printf '%s' "$?")" "bounded capture append preserves exact line bytes"
+printf 'evidence\n' > "$unit_tmp/consume-source"
+printf 'evidence\n' > "$unit_tmp/consume-expected"
+set +e
+consume_capture_file "$unit_tmp/consume-target" "$unit_tmp/consume-source"
+consume_capture_status=$?
+set -e
+assert_eq "0" "$consume_capture_status" "successful capture consumption succeeds"
+assert_eq "0" "$(cmp -s "$unit_tmp/consume-expected" "$unit_tmp/consume-target"; printf '%s' "$?")" "capture consumption appends exact bytes"
+assert_eq "absent" "$([[ -e "$unit_tmp/consume-source" ]] && printf present || printf absent)" "capture consumption removes consumed evidence"
+printf 'retain\n' > "$unit_tmp/retain-source"
+set +e
+consume_capture_file /dev/full "$unit_tmp/retain-source" 2>/dev/null
+consume_capture_status=$?
+set -e
+assert_eq "1" "$consume_capture_status" "failed capture append fails consumption"
+assert_eq "present" "$([[ -e "$unit_tmp/retain-source" ]] && printf present || printf absent)" "failed capture append retains evidence for cleanup"
+printf '%s' final > "$unit_tmp/unterminated-source"
+printf 'final\n' > "$unit_tmp/unterminated-expected"
+set +e
+consume_capture_file "$unit_tmp/unterminated-target" "$unit_tmp/unterminated-source"
+consume_capture_status=$?
+set -e
+assert_eq "0" "$consume_capture_status" "unterminated capture consumption succeeds"
+assert_eq "0" "$(cmp -s "$unit_tmp/unterminated-expected" "$unit_tmp/unterminated-target"; printf '%s' "$?")" "capture consumption adds a report-record boundary after unterminated evidence"
 printf 'report\n' > "$unit_tmp/source"
 mkdir "$unit_tmp/destination-dir"
 ln -s "$unit_tmp/destination-dir" "$unit_tmp/destination-link"
